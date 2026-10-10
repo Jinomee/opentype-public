@@ -1,6 +1,6 @@
 import { serviceRequest } from './network'
 import type { RefinementConfig } from './providers/refinement'
-import type { CorrectionPair } from './correction-extraction'
+import { isCorrectionTerm, type CorrectionPair } from './correction-extraction'
 
 export type CorrectionAnalysis =
   | { kind: 'ok'; pairs: CorrectionPair[] }
@@ -14,7 +14,10 @@ const MAX_DIFF_CELLS = 1_000_000
 function occurrences(text: string, value: string): number[] {
   const found: number[] = []
   for (let at = 0; (at = text.indexOf(value, at)) >= 0; at += Math.max(1, value.length)) {
-    found.push(at)
+    const previous = Array.from(text.slice(0, at)).at(-1) ?? ''
+    const next = Array.from(text.slice(at + value.length))[0] ?? ''
+    const tokenEdge = /[\p{Script=Latin}\p{N}]/u
+    if (!tokenEdge.test(previous) && !tokenEdge.test(next)) found.push(at)
     if (found.length > 100) break
   }
   return found
@@ -133,6 +136,11 @@ export async function analyzeInputCorrection(
       const row = item as Record<string, unknown>
       if (typeof row.original !== 'string' || typeof row.replacement !== 'string'
         || !grounded(hunks, before, after, row.original, row.replacement)) return { kind: 'unavailable', reason: 'request_failed' }
+      // Semantic correction judgment comes from the model. This local guard
+      // only prevents punctuation-heavy text, numbers, and malformed fragments from
+      // becoming dictionary entries; it deliberately does not impose a
+      // spelling-distance or tokenizer rule on Chinese proper names.
+      if (!isCorrectionTerm(row.original) || !isCorrectionTerm(row.replacement)) continue
       const key = `${row.original}\0${row.replacement}`
       if (!seen.has(key)) { seen.add(key); pairs.push({ original: row.original, replacement: row.replacement }) }
     }

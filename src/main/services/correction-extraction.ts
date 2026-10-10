@@ -4,7 +4,7 @@ const ignored = new Set(['今天', '明天', '后天', '昨天', '上午', '下�
 function term(value: string) {
   return value.trim().replace(/\s+/g, ' ')
 }
-function isTerm(value: string) {
+export function isCorrectionTerm(value: string) {
   return value.length >= 2 && value.length <= 24 && !ignored.has(value)
     && /^[\p{L}][\p{L} +#-]*[\p{L}+#]$/u.test(value)
     && !/^[零〇一二三四五六七八九十百千万亿两]+(?:点|年|月|日|时|分|秒|折|元|个)?$/.test(value)
@@ -60,7 +60,7 @@ export function extractCorrections(before: string, after: string): CorrectionPai
     }
     const oldWords = old.filter(s => /\p{L}/u.test(s)).length, nextWords = next.filter(s => /\p{L}/u.test(s)).length
     const key = original + '\0' + replacement
-    if (isTerm(original) && isTerm(replacement) && original !== replacement
+    if (isCorrectionTerm(original) && isCorrectionTerm(replacement) && original !== replacement
       && oldWords <= 6 && nextWords <= 6 && !seen.has(key)
       && !technicalAt(before, originalAt) && !technicalAt(after, replacementAt)) {
       seen.add(key); result.push({ original, replacement })
