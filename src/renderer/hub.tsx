@@ -438,18 +438,19 @@ function Onboarding({ complete, preferences }: { complete: () => void; preferenc
     ['bolt', api.platform === 'darwin' ? '输入监控' : '键盘监听环境', '在任何应用里响应快捷键', !!permissions.inputMonitoring, '可用', '尚不可用'],
     ['pen', api.platform === 'darwin' ? '辅助功能' : '系统输入环境', '把文字写进输入框', permissions.accessibility, '可用', '尚不可用'],
   ]
+  // Windows has no permission prompts for the keyboard hook or typing; only
+  // show that step there when something is actually blocked.
+  const skipPermissions = api.platform !== 'darwin' && mic && !!permissions.inputMonitoring && permissions.accessibility
+  const shown = skipPermissions ? [0, 2, 3] : [0, 1, 2, 3], position = Math.max(0, shown.indexOf(step))
   return (
     <div className="onboarding">
       <div className="onb-main">
         <div className="onb-brand"><span className="brand-mark"><Icon name="logo" size={20} /></span>OpenType</div>
         <div className="onb-progress">
           <div className="steps">
-            <span className="active" />
-            <span className={step > 0 ? 'active' : ''} />
-            <span className={step > 1 ? 'active' : ''} />
-            <span className={step > 2 ? 'active' : ''} />
+            {shown.map((value, index) => <span key={value} className={index <= position ? 'active' : ''} />)}
           </div>
-          <span>第 {step + 1} 步，共 4 步</span>
+          <span>第 {position + 1} 步，共 {shown.length} 步</span>
         </div>
         {step === 0 ? (
           <>
@@ -458,7 +459,7 @@ function Onboarding({ complete, preferences }: { complete: () => void; preferenc
               说出来，OpenType 帮你写成文字。
             </p>
             <div className="onb-actions">
-              <button className="primary large" onClick={() => setStep(1)}>
+              <button className="primary large" onClick={() => setStep(skipPermissions ? 2 : 1)}>
                 开始使用 <Icon name="arrow" />
               </button>
             </div>
@@ -496,7 +497,7 @@ function Onboarding({ complete, preferences }: { complete: () => void; preferenc
           <>
             <h1>选择识别方式</h1>
             <p>之后可以在设置里随时更改。</p>
-            <SpeechSettings embedded onDone={() => setStep(3)} onBack={() => setStep(1)} />
+            <SpeechSettings embedded onDone={() => setStep(3)} onBack={() => setStep(skipPermissions ? 0 : 1)} />
           </>
         ) : (
           <>

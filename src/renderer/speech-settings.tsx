@@ -201,7 +201,7 @@ export function SpeechSettings({ embedded = false, onDone, onBack }: { embedded?
     ['siliconflow', 'cloud', '云端', '免下载，需联网'],
     ['local', 'drive', '本地', '240 MB，离线'],
     ['apple', 'apple', 'Apple', '系统自带'],
-  ]
+  ].filter(([value]) => value !== 'apple' || window.opentype.platform === 'darwin' || provider === 'apple') as [SpeechProvider, string, string, string][]
   const refineFields = <>
     <div className="asr-row">
       <span className="asr-row-text">{!onboarding && <strong>文字整理</strong>}<small>去口头禅、理顺标点，翻译和随便问需要它；文字会发给 DeepSeek。</small></span>
