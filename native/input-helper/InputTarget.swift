@@ -5,6 +5,11 @@ private func targetAttr(_ element: AXUIElement, _ name: String) -> CFTypeRef? {
     var value: CFTypeRef?
     return AXUIElementCopyAttributeValue(element, name as CFString, &value) == .success ? value : nil
 }
+private func targetAttrResult(_ element: AXUIElement, _ name: String) -> (AXError, CFTypeRef?) {
+    var value: CFTypeRef?
+    let error = AXUIElementCopyAttributeValue(element, name as CFString, &value)
+    return (error, value)
+}
 private func targetElement(_ value: CFTypeRef?) -> AXUIElement? {
     guard let value, CFGetTypeID(value) == AXUIElementGetTypeID() else { return nil }
     return (value as! AXUIElement)
@@ -391,7 +396,15 @@ public func verifyInputTarget(_ tokenPtr: UnsafePointer<CChar>?) -> UnsafeMutabl
     guard let tokenPtr, let target = inputTargets[String(cString: tokenPtr)], target.submitted else { return targetJSON(["reason": "injection_target_unavailable"]) }
     guard let expected = target.expected, let element = target.element else { return targetJSON(["status": "unverified"]) }
     guard !target.app.isTerminated, !secureTarget(element) else { return targetJSON(["status": "unverified"]) }
-    guard let value = targetAttr(element, kAXValueAttribute as String) as? String else { return targetJSON(["status": "unverified"]) }
+    let (readError, rawValue) = targetAttrResult(element, kAXValueAttribute as String)
+    guard readError == .success else {
+        // Accessibility can report a transient read failure during delivery.
+        // Return pending so the existing bounded verifier rereads this same
+        // target; every other AX error remains unverified.
+        if readError == .cannotComplete { return targetJSON(["status": "pending", "reason": "ax_cannot_complete", "ax_error": readError.rawValue]) }
+        return targetJSON(["status": "unverified", "reason": "ax_read_failed", "ax_error": readError.rawValue])
+    }
+    guard let value = rawValue as? String else { return targetJSON(["status": "unverified", "reason": "ax_value_missing"]) }
     if value == expected { target.verified = true }
     return targetJSON(["status": value == expected ? "verified" : "pending"])
 }
