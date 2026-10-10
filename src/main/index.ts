@@ -874,7 +874,7 @@ const inputCorrections = new InputCorrections({
     return analyzeInputCorrection(before, after, { provider: 'deepseek', baseUrl: c.refineBaseUrl,
       model: c.refineModel, apiKey: c.refineApiKey, enabled: c.enableRefine }, signal)
   },
-  save: (id, text, corrected, target, scope, pairs) => {
+  save: (id, text, corrected, target, scope, pairs, fallbackReason) => {
     if (DictionaryRepo.scope() !== scope) return false
     const result = CorrectionRepo.observeEdit(id, text, corrected, getConfig().blacklistDomains, target.inputWebDomains, pairs)
     if (result.active) {
@@ -885,7 +885,9 @@ const inputCorrections = new InputCorrections({
       if (result.candidate) {
         shownCorrectionCapsuleId = result.candidate.id
         clearTimeout(barHideTimer)
-        barWindow?.webContents.send('desktop:correction-capsule-candidate', { candidate: result.candidate, scope: result.scope })
+        barWindow?.webContents.send('desktop:correction-capsule-candidate', {
+          candidate: result.candidate, scope: result.scope, analysisFallback: fallbackReason,
+        })
         barWindow?.showInactive()
       }
     }

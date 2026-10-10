@@ -12,7 +12,7 @@ interface Deps {
   native: InputObservationNative
   enabled: () => boolean
   allowed: (id: string, text: string, target: CaptureTarget) => boolean
-  save: (id: string, original: string, corrected: string, target: CaptureTarget, scope: string, pairs?: CorrectionPair[]) => boolean
+  save: (id: string, original: string, corrected: string, target: CaptureTarget, scope: string, pairs?: CorrectionPair[], fallbackReason?: 'not_configured' | 'request_failed') => boolean
   analyze?: (original: string, corrected: string, signal: AbortSignal) => Promise<CorrectionAnalysis>
   scope?: () => string
   retract?: (id: string) => void
@@ -92,7 +92,7 @@ export class InputCorrections {
     s.analyzingRevision = revision
     const controller = new AbortController()
     s.analysisController = controller
-    const finish = (pairs?: CorrectionPair[]) => {
+    const finish = (pairs?: CorrectionPair[], fallbackReason?: 'not_configured' | 'request_failed') => {
       if (this.current !== s || s.revision !== revision || controller.signal.aborted) return
       try {
         const fresh = this.deps.native.read(s.token)
@@ -110,16 +110,17 @@ export class InputCorrections {
       }
       if (!this.deps.enabled() || !this.deps.allowed(s.id, s.original, s.target)
         || (this.deps.scope && this.deps.scope() !== s.scope)) { this.stop(); return }
-      if (!this.deps.save(s.id, s.original, corrected, s.target, s.scope, pairs)) { this.stop(); return }
+      if (!this.deps.save(s.id, s.original, corrected, s.target, s.scope, pairs, fallbackReason)) { this.stop(); return }
       s.saved = corrected
       s.analysisController = undefined
       s.analyzingRevision = undefined
     }
-    if (!this.deps.analyze) { finish(); return }
+    if (!this.deps.analyze) { finish(undefined, 'not_configured'); return }
     void this.deps.analyze(s.original, corrected, controller.signal).then(result => {
       if (result.kind === 'cancelled') return
-      finish(result.kind === 'ok' ? result.pairs : undefined)
-    }).catch(() => finish())
+      finish(result.kind === 'ok' ? result.pairs : undefined,
+        result.kind === 'unavailable' ? result.reason : undefined)
+    }).catch(() => finish(undefined, 'request_failed'))
   }
   stop(preserveStable = false) {
     const s = this.current

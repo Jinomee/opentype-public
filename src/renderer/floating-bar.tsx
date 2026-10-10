@@ -28,6 +28,7 @@ function FloatingBar() {
     [candidate, setCandidate] = useState<CorrectionCandidate | null>(null),
     [candidateScope, setCandidateScope] = useState<string>(),
     [candidateBusy, setCandidateBusy] = useState(false),
+    [analysisFallback, setAnalysisFallback] = useState<'not_configured' | 'request_failed'>(),
     [feedback, setFeedback] = useState(''),
     [feedbackTitle, setFeedbackTitle] = useState('')
   const preferences = useRef<Preferences>()
@@ -100,6 +101,7 @@ function FloatingBar() {
         candidateGeneration.current++
         updateCandidate(null)
         setCandidateScope(undefined)
+        setAnalysisFallback(undefined)
         deferredRetraction.current = ''
         correctionSessionRef.current = false
         updateFeedback('')
@@ -107,7 +109,7 @@ function FloatingBar() {
       }
       setState(s)
     })
-    const offCandidate = window.opentype.desktop.corrections.onCapsuleCandidate(({ candidate: next, candidateId, scope }) => {
+    const offCandidate = window.opentype.desktop.corrections.onCapsuleCandidate(({ candidate: next, candidateId, scope, analysisFallback: fallback }) => {
       if (next && candidateRef.current?.id === next.id) return
       if (!next) {
         const targetId = candidateId
@@ -123,6 +125,7 @@ function FloatingBar() {
       if (next) correctionSessionRef.current = true
       updateCandidate(next)
       setCandidateScope(next ? scope : undefined)
+      setAnalysisFallback(next ? fallback : undefined)
       updateFeedback('')
       setFeedbackTitle('')
       if (!next) hideWhenSettled()
@@ -248,7 +251,10 @@ function FloatingBar() {
         <span className="correction-word" title={candidate.original}>{candidate.original}</span>
         <span className="correction-arrow" aria-hidden="true">→</span>
         <span className="correction-word" title={candidate.replacement}>{candidate.replacement}</span>
-        <button className="correction-accept" disabled={candidateBusy} onMouseDown={e => e.preventDefault()} onClick={() => void acceptCandidate()} title={feedbackTitle || '加入词典'}>
+        <button className="correction-accept" disabled={candidateBusy} onMouseDown={e => e.preventDefault()} onClick={() => void acceptCandidate()}
+          title={analysisFallback === 'not_configured' ? '未启用 AI，使用本地识别'
+            : analysisFallback === 'request_failed' ? 'AI暂不可用，使用本地识别；请检查 DeepSeek 设置'
+            : feedbackTitle || '加入词典'}>
           {feedback || '加入词典'}
         </button>
         <button className="correction-dismiss" disabled={candidateBusy} onMouseDown={e => e.preventDefault()} onClick={() => void dismissCandidate()} aria-label="关闭此纠词提示" title="关闭此提示">

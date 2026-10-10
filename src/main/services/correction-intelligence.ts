@@ -4,7 +4,7 @@ import type { CorrectionPair } from './correction-extraction'
 
 export type CorrectionAnalysis =
   | { kind: 'ok'; pairs: CorrectionPair[] }
-  | { kind: 'unavailable' }
+  | { kind: 'unavailable'; reason: 'not_configured' | 'request_failed' }
   | { kind: 'cancelled' }
 
 const MAX_TEXT = 20_000
@@ -86,16 +86,17 @@ export async function analyzeInputCorrection(
   signal: AbortSignal,
 ): Promise<CorrectionAnalysis> {
   if (signal.aborted) return { kind: 'cancelled' }
-  if (!config.enabled || !config.apiKey?.trim() || before.length > MAX_TEXT || after.length > MAX_TEXT) return { kind: 'unavailable' }
+  if (!config.enabled || !config.apiKey?.trim()) return { kind: 'unavailable', reason: 'not_configured' }
+  if (before.length > MAX_TEXT || after.length > MAX_TEXT) return { kind: 'unavailable', reason: 'request_failed' }
   const hunks = diffHunks(before, after)
-  if (!hunks) return { kind: 'unavailable' }
+  if (!hunks) return { kind: 'unavailable', reason: 'request_failed' }
   let endpoint: URL
   try {
     const base = new URL(config.baseUrl)
     if (base.origin !== 'https://api.deepseek.com' || base.username || base.password
-      || !['/', '/v1', '/v1/'].includes(base.pathname) || base.search || base.hash) return { kind: 'unavailable' }
+      || !['/', '/v1', '/v1/'].includes(base.pathname) || base.search || base.hash) return { kind: 'unavailable', reason: 'request_failed' }
     endpoint = new URL('/chat/completions', base)
-  } catch { return { kind: 'unavailable' } }
+  } catch { return { kind: 'unavailable', reason: 'request_failed' } }
 
   try {
     const response = await serviceRequest(endpoint, {
@@ -116,27 +117,27 @@ export async function analyzeInputCorrection(
       signal: AbortSignal.any([AbortSignal.timeout(8_000), signal]),
     })
     if (signal.aborted) return { kind: 'cancelled' }
-    if (response.statusCode !== 200) { await response.body.dump(); return { kind: 'unavailable' } }
+    if (response.statusCode !== 200) { await response.body.dump(); return { kind: 'unavailable', reason: 'request_failed' } }
     const payload = await response.body.json() as {
       choices?: Array<{ finish_reason?: string; message?: { content?: string; reasoning_content?: string } }>
     }
     const choice = payload.choices?.[0]
     if (choice?.finish_reason !== 'stop' || choice.message?.reasoning_content?.trim()
-      || typeof choice.message?.content !== 'string') return { kind: 'unavailable' }
+      || typeof choice.message?.content !== 'string') return { kind: 'unavailable', reason: 'request_failed' }
     const parsed = JSON.parse(choice.message.content) as { pairs?: unknown }
-    if (!parsed || !Array.isArray(parsed.pairs) || parsed.pairs.length > MAX_PAIRS) return { kind: 'unavailable' }
+    if (!parsed || !Array.isArray(parsed.pairs) || parsed.pairs.length > MAX_PAIRS) return { kind: 'unavailable', reason: 'request_failed' }
     const pairs: CorrectionPair[] = []
     const seen = new Set<string>()
     for (const item of parsed.pairs) {
-      if (!item || typeof item !== 'object') return { kind: 'unavailable' }
+      if (!item || typeof item !== 'object') return { kind: 'unavailable', reason: 'request_failed' }
       const row = item as Record<string, unknown>
       if (typeof row.original !== 'string' || typeof row.replacement !== 'string'
-        || !grounded(hunks, before, after, row.original, row.replacement)) return { kind: 'unavailable' }
+        || !grounded(hunks, before, after, row.original, row.replacement)) return { kind: 'unavailable', reason: 'request_failed' }
       const key = `${row.original}\0${row.replacement}`
       if (!seen.has(key)) { seen.add(key); pairs.push({ original: row.original, replacement: row.replacement }) }
     }
     return { kind: 'ok', pairs }
   } catch {
-    return signal.aborted ? { kind: 'cancelled' } : { kind: 'unavailable' }
+    return signal.aborted ? { kind: 'cancelled' } : { kind: 'unavailable', reason: 'request_failed' }
   }
 }
