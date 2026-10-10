@@ -27,7 +27,7 @@ await test('focus readiness waits asynchronously and times out without any paste
   const f=fixture({ready:()=>++checks===3?{ok:true}:{reason:'injection_focus_pending'}})
   assert.equal((await f.run()).status,'verified'); assert.equal(checks,3)
   const stalled=fixture({ready:()=>({reason:'injection_focus_pending'})})
-  await assert.rejects(stalled.run(),/injection_target_unavailable/);assert(!stalled.calls.includes('commit'))
+  await assert.rejects(stalled.run(),/injection_focus_timeout/);assert(!stalled.calls.includes('commit'))
 })
 await test('cancel before preparation or while waiting prevents commit', async () => {
   const before=fixture();before.controller.abort();await assert.rejects(before.run());assert.equal(before.calls.length,0)
@@ -43,6 +43,12 @@ await test('unreadable fields, partial AX errors and uncertain results never aut
     const f=fixture({verify});const result=await f.run();assert.equal(result.status,'unverified');assert.equal(result.detail,'injection_unverified');assert.equal(f.calls.filter(c=>c==='commit').length,1)
   }
   const f=fixture({commit:()=>({submitted:true,method:'accessibility',uncertain:true})});assert.equal((await f.run()).status,'unverified');assert(!f.calls.includes('verify'))
+})
+await test('blind typing into an app without a readable field raises no warning and never retries', async () => {
+  let commits=0,verifies=0
+  const f=fixture({commit:()=>(commits++,{submitted:true,method:'windows_typing'}),verify:()=>(verifies++,{status:'unverified',blind:true})})
+  const result=await f.run();assert.equal(result.status,'unverified');assert.equal(result.method,'windows_typing');assert.equal(result.detail,undefined)
+  assert.equal(commits,1);assert.equal(verifies,1)
 })
 await test('native dispatch failures are reported and cancel after submission is not reported as unsent', async () => {
   const failed=fixture({commit:()=>({reason:'injection_failed'})});await assert.rejects(failed.run(),/injection_failed/)

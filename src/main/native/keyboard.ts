@@ -49,6 +49,8 @@ export function createKeyboardMonitor(lib: koffi.IKoffiLib) {
       listener = undefined
       if (callback) { koffi.unregister(callback); callback = undefined }
     },
+    /** macOS never eats shortcut keys; only the Windows hook can. */
+    setSwallow(_keys: { key: string; modifiers: string[] }[], _escape: boolean): void {},
     getStatus(): KeyboardMonitorStatus {
       const ptr = status()
       if (!ptr) throw new Error('keyboard_status_unavailable')
@@ -66,6 +68,7 @@ function createQueuedKeyboardMonitor(lib: koffi.IKoffiLib) {
   const drain = lib.func('drainKeyboardEvents', 'void *', [])
   const status = lib.func('getKeyboardMonitorStatus', 'void *', [])
   const free = lib.func('freeString', 'void', ['void *'])
+  const swallow = lib.func('setKeyboardSwallow', 'void', ['str', 'bool'])
   let timer: ReturnType<typeof setInterval> | undefined
   let listener: ((event: KeyEvent) => void) | undefined
   let requested = false, ticks = 0, available = true
@@ -105,5 +108,11 @@ function createQueuedKeyboardMonitor(lib: koffi.IKoffiLib) {
     },
     stopMonitor() { requested = false; clearInterval(timer); timer = undefined; stop(); listener = undefined },
     getStatus() { return read<KeyboardMonitorStatus>(status) },
+    /** Shortcut keys the hook eats so they do not also reach the app in front. */
+    setSwallow(keys: { key: string; modifiers: string[] }[], escape: boolean) {
+      const bit: Record<string, number> = { Control: 1, Option: 2, Shift: 4, Command: 8 }
+      const spec = keys.filter(k => !k.modifiers.includes('Fn')).map(k => `${k.key}:${k.modifiers.reduce((mask, m) => mask | (bit[m] ?? 0), 0)}`).join(',')
+      swallow(spec, escape)
+    },
   }
 }

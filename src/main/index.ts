@@ -268,6 +268,21 @@ function effectiveShortcuts(): ShortcutBindings {
 }
 
 /** 把三个模式的绑定摊平成状态机可用的列表。 */
+const CANCELLABLE_PHASES = ['preparing', 'recording', 'stopping', 'encoding', 'uploading', 'transcribing', 'refining', 'injecting']
+/** Windows: eat the keys our shortcuts own, and Escape while a dictation can be cancelled. */
+let swallowedSpec = ''
+function syncKeyboardSwallow(): void {
+  if (process.platform !== 'win32') return
+  try {
+    const keys = activeBindings().filter(binding => !['Fn', 'Command', 'Control', 'Option', 'Shift'].includes(binding.key))
+      .map(binding => ({ key: binding.key, modifiers: binding.modifiers }))
+    const escape = CANCELLABLE_PHASES.includes(currentVoiceState?.phase ?? '')
+    const spec = JSON.stringify([keys, escape])
+    if (spec === swallowedSpec) return
+    swallowedSpec = spec
+    KeyboardHelper.setSwallow(keys, escape)
+  } catch (error) { console.error('[keyboard] swallow update failed', error instanceof Error ? error.name : 'unknown') }
+}
 function activeBindings(): HotkeyBinding[] {
   const settings = (store?.get('app-settings' as never) ?? {}) as Record<string, unknown>
   const activation = readPreferences(settings).recordingActivation
@@ -911,7 +926,9 @@ function createVoicePipeline(): CaptureSession {
       }
       state = { ...state, audioNotice: outputAudioNotice || undefined }
       state = reconcileCaptureState(hotkeys, state)
+      const phaseChanged = currentVoiceState?.phase !== state.phase
       currentVoiceState = state
+      if (phaseChanged) syncKeyboardSwallow()
       barWindow?.webContents.send('capture:state-changed', state)
       if (state.level === undefined) mainWindow?.webContents.send('capture:state-changed', state)
       barPositioner?.preview(false) // the capsule no longer shows the preview panel
@@ -1024,7 +1041,7 @@ async function pasteLastTranscript(): Promise<void> {
     }
     if (pressedKeys.size) throw new Error('请松开快捷键后重试，文字尚未粘贴。')
     const result = await deliverToInput(InputDelivery, target, text, controller.signal)
-    if (result.status === 'unverified') openInteractiveCard({ title: '请核对粘贴结果', text, detail: result.detail })
+    if (result.status === 'unverified' && result.detail) openInteractiveCard({ title: '请核对粘贴结果', text, detail: result.detail })
   } catch (error) {
     if (!controller.signal.aborted) {
       const detail = (error as Error).message
@@ -1130,7 +1147,7 @@ function startKeyboardMonitor(): number {
     if (shortcutCapture.handle(ev)) return
     if (recordingUserDisabled || powerLifecycle?.paused()) return
     broadcastGlobalKeyboard(ev)
-    if (ev.type === 'keyDown' && ['Escape','Esc'].includes(ev.key)) { lastPaste?.abort(); pipeline.onCancel(); closeInteractiveCard(); hotkeys.setBindings(activeBindings()); return }
+    if (ev.type === 'keyDown' && ['Escape','Esc'].includes(ev.key)) { lastPaste?.abort(); pipeline.onCancel(); closeInteractiveCard(); hotkeys.setBindings(activeBindings()); syncKeyboardSwallow(); return }
     hotkeys.handle(ev)
   })
 }
@@ -1138,7 +1155,7 @@ function startKeyboardMonitor(): number {
 /** 快捷键变更后重载：重读有效绑定，再重启监听。 */
 function reloadKeyboardShortcuts(options: { keepDictation?: boolean } = {}): void {
   cancelRecordingControls(options)
-  hotkeys.setBindings(activeBindings())
+  hotkeys.setBindings(activeBindings()); syncKeyboardSwallow()
   // 清掉按下快照：stop/start 间隙可能丢 keyUp，留着会让渲染层误以为键还按着
   pressedKeys.clear()
   KeyboardHelper.stopMonitor()
@@ -1793,11 +1810,11 @@ function registerIpc(): void {
     if (!win || !win.isFocused() || typeof id !== 'string' || id.length > 100) throw new Error('shortcut_capture_unavailable')
     if (pipeline.isBusy) throw new Error('请先结束当前听写，再修改快捷键')
     releaseShortcutCapture?.()
-    hotkeys.setBindings(activeBindings())
+    hotkeys.setBindings(activeBindings()); syncKeyboardSwallow()
     const contents = event.sender
     const release = (reason: 'closed' | 'blurred' = 'closed') => {
       shortcutCapture.end(id, reason)
-      hotkeys.setBindings(activeBindings())
+      hotkeys.setBindings(activeBindings()); syncKeyboardSwallow()
       contents.removeListener('before-input-event', input)
       contents.removeListener('destroyed', closed)
       contents.removeListener('render-process-gone', closed)
@@ -2197,6 +2214,9 @@ if (!gotLock) {
 }
 
 if (gotLock) app.whenReady().then(async () => {
+  // Windows and Linux would otherwise show Electron's default File/Edit/View
+  // menu bar on every window. Editing shortcuts keep working without it.
+  if (process.platform !== 'darwin') Menu.setApplicationMenu(null)
   // Before initStore/safeStorage (see confirmUpdaterRestart), then report the
   // previous install result and sweep stale update leftovers.
   recoverUpdateInstall(confirmUpdaterRestart())
@@ -2302,7 +2322,7 @@ if (gotLock) app.whenReady().then(async () => {
   // Show onboarding/settings first. Only a selected local provider prepares its model.
   if (getConfig().provider === 'local') void prepareLocalModels()
 
-  hotkeys.setBindings(activeBindings())
+  hotkeys.setBindings(activeBindings()); syncKeyboardSwallow()
 
   // Keep missing Input Monitoring permission visible instead of silently failing in the tray.
   const rc = startKeyboardMonitor()

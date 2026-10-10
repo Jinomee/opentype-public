@@ -11,6 +11,12 @@ std::deque<std::string> events;
 bool overflow = false, held[256] = {}, altGr = false;
 HHOOK hook = nullptr;
 struct PendingControl { std::string event; DWORD time = 0; ULONGLONG since = 0; } pendingControl;
+// Keys a shortcut owns are eaten so they do not also act in the app in front
+// (Ctrl+F8 stepping a debugger, Escape clearing a chat box while it cancels a
+// dictation). Escape is eaten only while something can be cancelled.
+struct Swallow { DWORD key = 0; int mods = 0; };
+std::vector<Swallow> swallowed; bool swallowEscape = false, eaten[256] = {};
+enum : int { modControl = 1, modOption = 2, modShift = 4, modCommand = 8 };
 
 std::string keyName(DWORD key) {
   if (key>='A' && key<='Z') return std::string(1,static_cast<char>(key));
@@ -42,7 +48,7 @@ LRESULT CALLBACK keyHook(int code, WPARAM action, LPARAM data) {
   if (key==VK_MENU) key=(raw.flags&LLKHF_EXTENDED)?VK_RMENU:VK_LMENU;
   if (key==VK_SHIFT) key=MapVirtualKeyW(raw.scanCode,MAPVK_VSC_TO_VK_EX);
   if (key >= 256) return CallNextHookEx(hook,code,action,data);
-  bool down = action==WM_KEYDOWN || action==WM_SYSKEYDOWN;
+  bool down = action==WM_KEYDOWN || action==WM_SYSKEYDOWN, consume = false;
   try {
   std::lock_guard<std::mutex> guard(queueMutex);
   bool repeat = down && held[key]; held[key] = down;
@@ -59,6 +65,15 @@ LRESULT CALLBACK keyHook(int code, WPARAM action, LPARAM data) {
   if (control && key!=VK_LCONTROL && key!=VK_RCONTROL) mods.push_back("Control");
   if ((held[VK_LMENU]||held[VK_RMENU]) && key!=VK_LMENU && key!=VK_RMENU) mods.push_back("Option");
   if ((held[VK_LSHIFT]||held[VK_RSHIFT]) && key!=VK_LSHIFT && key!=VK_RSHIFT) mods.push_back("Shift");
+  int mask=0;
+  for(const auto& mod:mods)mask|=mod=="Control"?modControl:mod=="Option"?modOption:mod=="Shift"?modShift:modCommand;
+  if(down&&!repeat){
+    bool own=key==VK_ESCAPE&&swallowEscape&&mask==0;
+    for(const auto& entry:swallowed)if(entry.key==key&&entry.mods==mask)own=true;
+    eaten[key]=own;
+  }
+  consume=eaten[key];
+  if(!down)eaten[key]=false;
   std::string flags="["; for(const auto& mod:mods) { if(flags.size()>1)flags+=',';flags+=ot::quote(mod); } flags+=']';
   std::string event = ot::object({{"type",ot::quote(std::string(down?"keyDown":"keyUp"))},{"key",ot::quote(keyName(key))},
     {"keyCode",std::to_string(key)},{"modifiers",flags},{"isRepeat",repeat?"true":"false"},{"timestamp",std::to_string(ot::epochMilliseconds())}});
@@ -69,6 +84,7 @@ LRESULT CALLBACK keyHook(int code, WPARAM action, LPARAM data) {
   } catch (...) {
     std::lock_guard<std::mutex> guard(queueMutex);overflow=true;
   }
+  if (consume) return 1;
   return CallNextHookEx(hook,code,action,data);
 }
 void stop() {
@@ -77,7 +93,7 @@ void stop() {
   if(hookThread.joinable())hookThread.join();
   active=false;hookThreadID=0;
   std::lock_guard<std::mutex> guard(queueMutex);events.clear();pendingControl={};overflow=false;altGr=false;
-  std::fill(std::begin(held),std::end(held),false);
+  std::fill(std::begin(held),std::end(held),false);std::fill(std::begin(eaten),std::end(eaten),false);
 }
 }
 
@@ -97,6 +113,23 @@ OT_EXPORT int startKeyboardMonitor(void*) {
     active=false;
   });
   return result.get();
+}
+// spec: "F8:1,Space:5" (key name as reported, modifier mask as above).
+OT_EXPORT void setKeyboardSwallow(const char* spec,bool escape){
+  std::vector<Swallow> list;std::string text=spec?spec:"";size_t start=0;
+  while(start<text.size()){
+    size_t end=text.find(',',start);auto item=text.substr(start,end==std::string::npos?std::string::npos:end-start);
+    size_t colon=item.rfind(':');
+    if(colon!=std::string::npos&&colon>0){
+      auto name=item.substr(0,colon);int mods=std::atoi(item.c_str()+colon+1);
+      for(DWORD key=0;key<256;key++)if(keyName(key)==name){
+        bool modifier=key==VK_LWIN||key==VK_RWIN||(key>=VK_LSHIFT&&key<=VK_RMENU)||key==VK_SHIFT||key==VK_CONTROL||key==VK_MENU;
+        if(!modifier)list.push_back({key,mods});break;
+      }
+    }
+    if(end==std::string::npos)break;start=end+1;
+  }
+  std::lock_guard<std::mutex> guard(queueMutex);swallowed=std::move(list);swallowEscape=escape;
 }
 OT_EXPORT void stopKeyboardMonitor(){std::lock_guard<std::mutex> guard(lifecycle);stop();}
 OT_EXPORT char* drainKeyboardEvents(){
