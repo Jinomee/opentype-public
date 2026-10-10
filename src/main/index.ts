@@ -1147,7 +1147,7 @@ function startKeyboardMonitor(): number {
     if (shortcutCapture.handle(ev)) return
     if (recordingUserDisabled || powerLifecycle?.paused()) return
     broadcastGlobalKeyboard(ev)
-    if (ev.type === 'keyDown' && ['Escape','Esc'].includes(ev.key)) { lastPaste?.abort(); pipeline.onCancel(); closeInteractiveCard(); hotkeys.setBindings(activeBindings()); syncKeyboardSwallow(); return }
+    if (ev.type === 'keyDown' && ['Escape','Esc'].includes(ev.key) && (process.platform !== 'win32' || ev.modifiers.length === 0)) { lastPaste?.abort(); pipeline.onCancel(); closeInteractiveCard(); hotkeys.setBindings(activeBindings()); syncKeyboardSwallow(); return }
     hotkeys.handle(ev)
   })
 }

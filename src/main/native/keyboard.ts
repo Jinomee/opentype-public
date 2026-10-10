@@ -111,7 +111,9 @@ function createQueuedKeyboardMonitor(lib: koffi.IKoffiLib) {
     /** Shortcut keys the hook eats so they do not also reach the app in front. */
     setSwallow(keys: { key: string; modifiers: string[] }[], escape: boolean) {
       const bit: Record<string, number> = { Control: 1, Option: 2, Shift: 4, Command: 8 }
-      const spec = keys.filter(k => !k.modifiers.includes('Fn')).map(k => `${k.key}:${k.modifiers.reduce((mask, m) => mask | (bit[m] ?? 0), 0)}`).join(',')
+      // Windows native parsing uses newline records so punctuation keys such
+      // as comma remain representable without escaping.
+      const spec = keys.filter(k => !k.modifiers.includes('Fn')).map(k => `${k.key}:${k.modifiers.reduce((mask, m) => mask | (bit[m] ?? 0), 0)}`).join('\n')
       swallow(spec, escape)
     },
   }

@@ -189,9 +189,12 @@ struct Typed{bool complete=false,any=false;};
 // UNICODE SendInput in small batches: one large burst makes Electron apps,
 // terminals and remote sessions drop or reorder characters. A surrogate pair
 // stays within one batch.
-Typed typeText(const std::wstring& text){
+Typed typeText(const Target& target,const std::wstring& text){
   Typed out;constexpr size_t batch=24;size_t i=0;
   while(i<text.size()){
+    // Keep the original foreground window for every batch. The user can
+    // switch apps while a longer transcript is being typed.
+    if(!focused(target)||modifiersHeld())return out;
     std::vector<INPUT> keys;size_t chars=0;
     while(i<text.size()&&chars<batch){
       size_t units=(IS_HIGH_SURROGATE(text[i])&&i+1<text.size()&&IS_LOW_SURROGATE(text[i+1]))?2:1;
@@ -215,7 +218,7 @@ std::string commit(Target& target,const std::wstring& text,const std::string& ht
   if(modifiersHeld())throw std::runtime_error("injection_keys_held");
   if(!target.field&&typeable(target,text)){
     target.submitted=true;target.inserted=text;
-    auto typed=typeText(text);
+    auto typed=typeText(target,text);
     if(typed.complete)return std::string("{\"submitted\":true,\"uncertain\":false,\"method\":\"windows_typing\"}");
     // Part of the text already reached the app: pasting it all again would
     // duplicate it, so report the uncertainty instead.

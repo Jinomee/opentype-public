@@ -114,11 +114,11 @@ OT_EXPORT int startKeyboardMonitor(void*) {
   });
   return result.get();
 }
-// spec: "F8:1,Space:5" (key name as reported, modifier mask as above).
+// spec: "F8:1\nSpace:5" (key name as reported, modifier mask as above).
 OT_EXPORT void setKeyboardSwallow(const char* spec,bool escape){
   std::vector<Swallow> list;std::string text=spec?spec:"";size_t start=0;
   while(start<text.size()){
-    size_t end=text.find(',',start);auto item=text.substr(start,end==std::string::npos?std::string::npos:end-start);
+    size_t end=text.find('\n',start);auto item=text.substr(start,end==std::string::npos?std::string::npos:end-start);
     size_t colon=item.rfind(':');
     if(colon!=std::string::npos&&colon>0){
       auto name=item.substr(0,colon);int mods=std::atoi(item.c_str()+colon+1);
