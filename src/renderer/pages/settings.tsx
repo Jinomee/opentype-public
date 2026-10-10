@@ -391,7 +391,7 @@ function Personal({
       <Row title="从历史修改生成纠词建议" description="你在历史里改过的词，会提示加入词典">
         <Toggle label="从历史修改生成纠词建议" checked={p.learnFromEdits} onChange={v => void save({ learnFromEdits: v })} />
       </Row>
-      <Row title="从输入框修改生成纠词建议" description="听写后一分钟内你在输入框里改的词，会提示加入词典">
+      <Row title="从输入框修改生成纠词建议" description="听写后一分钟内识别你修改的词语，提示加入词典。启用文字整理并配置 DeepSeek 后优先使用 AI，否则使用本地识别。">
         <Toggle label="从输入框修改生成纠词建议" checked={p.learnFromInputEdits} onChange={v => void save({ learnFromInputEdits: v })} />
       </Row>
       <h2>听写输出格式</h2>
