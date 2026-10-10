@@ -16,8 +16,9 @@ function occurrences(text: string, value: string): number[] {
   for (let at = 0; (at = text.indexOf(value, at)) >= 0; at += Math.max(1, value.length)) {
     const previous = Array.from(text.slice(0, at)).at(-1) ?? ''
     const next = Array.from(text.slice(at + value.length))[0] ?? ''
-    const tokenEdge = /[\p{Script=Latin}\p{N}]/u
-    if (!tokenEdge.test(previous) && !tokenEdge.test(next)) found.push(at)
+    const tokenEdge = (char: string) => /\p{N}/u.test(char)
+      || (/\p{L}/u.test(char) && !/\p{Script=Han}/u.test(char))
+    if (!tokenEdge(previous) && !tokenEdge(next)) found.push(at)
     if (found.length > 100) break
   }
   return found
