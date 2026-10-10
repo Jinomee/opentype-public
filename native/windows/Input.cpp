@@ -203,7 +203,11 @@ Typed typeText(const Target& target,const std::wstring& text){
       i+=units;chars++;
     }
     UINT sent=SendInput(static_cast<UINT>(keys.size()),keys.data(),sizeof(INPUT));
-    if(sent==0&&!out.any){Sleep(20);sent=SendInput(static_cast<UINT>(keys.size()),keys.data(),sizeof(INPUT));}
+    if(sent==0&&!out.any){
+      Sleep(20);
+      if(!focused(target)||modifiersHeld())return out;
+      sent=SendInput(static_cast<UINT>(keys.size()),keys.data(),sizeof(INPUT));
+    }
     if(sent>0)out.any=true;
     if(sent!=keys.size())return out;
     if(i<text.size())Sleep(4);
