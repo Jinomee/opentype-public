@@ -23,7 +23,7 @@ export interface InputDeliveryNative {
   prepare(token: string): { ok?: boolean; reason?: string } | Promise<{ ok?: boolean; reason?: string }>
   ready(token: string): { ok?: boolean; reason?: string }
   commit(token: string, text: string): { submitted?: boolean; method?: string; uncertain?: boolean; reason?: string } | Promise<{ submitted?: boolean; method?: string; uncertain?: boolean; reason?: string }>
-  verify(token: string): { status?: 'verified' | 'unverified' | 'pending'; reason?: string }
+  verify(token: string): { status?: 'verified' | 'unverified' | 'pending'; blind?: boolean; reason?: string }
 }
 
 /** Restoration may settle asynchronously. Only the native commit mutates text,
@@ -66,6 +66,9 @@ export async function deliverToInput(
     try { state = native.verify(token) }
     catch { break }
     if (state.status === 'verified') return { status: 'verified', method }
+    // The target app exposes no readable field (Windows blind typing): the
+    // write went out and there is nothing to read back, so raise no warning.
+    if (state.status === 'unverified' && state.blind) return { status: 'unverified', method }
     if (state.status !== 'pending') break
     await pause(50)
   }
