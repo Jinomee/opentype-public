@@ -37,12 +37,32 @@ export function extractCorrections(before: string, after: string): CorrectionPai
   const result: CorrectionPair[] = [], seen = new Set<string>()
   let i = 0, j = 0, oldStart = 0, nextStart = 0, old: string[] = [], next: string[] = []
   const flush = () => {
-    const original = term(old.join('')), replacement = term(next.join(''))
+    let original = term(old.join('')), replacement = term(next.join(''))
+    let originalAt = leftAt[prefix + oldStart], replacementAt = rightAt[prefix + nextStart]
+    // Chinese segmentation can split an unfamiliar name into single Han
+    // characters. For a one-character substitution, include one unchanged
+    // adjacent Han character so the proposal remains a usable complete token
+    // (e.g. 张伟 → 张维), without expanding across punctuation or spaces.
+    if (old.length === 1 && next.length === 1 && /^\p{Script=Han}$/u.test(old[0]) && /^\p{Script=Han}$/u.test(next[0])) {
+      const leftIndex = prefix + oldStart - 1, rightIndex = prefix + nextStart - 1
+      const canExpandLeft = leftIndex >= 0 && rightIndex >= 0 && left[leftIndex] === right[rightIndex]
+        && /^\p{Script=Han}$/u.test(left[leftIndex])
+      if (canExpandLeft) {
+        original = left[leftIndex] + original; replacement = right[rightIndex] + replacement
+        originalAt = leftAt[leftIndex]; replacementAt = rightAt[rightIndex]
+      } else {
+        const oldNext = prefix + oldStart + 1, newNext = prefix + nextStart + 1
+        if (oldNext < left.length && newNext < right.length && left[oldNext] === right[newNext]
+          && /^\p{Script=Han}$/u.test(left[oldNext])) {
+          original += left[oldNext]; replacement += right[newNext]
+        }
+      }
+    }
     const oldWords = old.filter(s => /\p{L}/u.test(s)).length, nextWords = next.filter(s => /\p{L}/u.test(s)).length
     const key = original + '\0' + replacement
     if (isTerm(original) && isTerm(replacement) && original !== replacement
       && oldWords <= 6 && nextWords <= 6 && !seen.has(key)
-      && !technicalAt(before, leftAt[prefix + oldStart]) && !technicalAt(after, rightAt[prefix + nextStart])) {
+      && !technicalAt(before, originalAt) && !technicalAt(after, replacementAt)) {
       seen.add(key); result.push({ original, replacement })
     }
     old = []; next = []
@@ -66,12 +86,16 @@ export function extractCorrections(before: string, after: string): CorrectionPai
 export function extractInputCorrections(before: string, after: string): CorrectionPair[] {
   return extractCorrections(before, after).filter(pair => {
     const a = [...pair.original.toLocaleLowerCase()], b = [...pair.replacement.toLocaleLowerCase()]
+    // A passive edit is weaker evidence than an explicit history correction.
+    // Require one complete lexical token and a small spelling change; otherwise
+    // a two-character content rewrite such as 张伟 → 李雷 would look valid.
+    if (pair.original.includes(' ') || pair.replacement.includes(' ')) return false
     let previous = Array.from({ length: b.length + 1 }, (_, i) => i)
     for (let i = 0; i < a.length; i++) {
       const next = [i + 1]
       for (let j = 0; j < b.length; j++) next.push(Math.min(next[j] + 1, previous[j + 1] + 1, previous[j] + (a[i] === b[j] ? 0 : 1)))
       previous = next
     }
-    return previous[b.length] <= Math.max(2, Math.floor(Math.max(a.length, b.length) * 0.4))
+    return previous[b.length] <= Math.max(1, Math.floor(Math.max(a.length, b.length) * 0.25))
   })
 }

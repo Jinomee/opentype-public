@@ -36,6 +36,7 @@ function FloatingBar() {
     sessionId = useRef(''),
     stateRef = useRef<VoiceState>({ phase: 'idle' }),
     candidateRef = useRef<CorrectionCandidate | null>(null),
+    candidateGeneration = useRef(0),
     candidateAction = useRef(false),
     deferredRetraction = useRef(''),
     feedbackTimer = useRef<ReturnType<typeof setTimeout>>(),
@@ -45,6 +46,7 @@ function FloatingBar() {
   const updateCandidate = (value: CorrectionCandidate | null) => {
     candidateRef.current = value
     setCandidate(value)
+    window.opentype.desktop.corrections.setCapsuleCandidate(value?.id)
   }
   const updateFeedback = (value: string) => {
     feedbackRef.current = value
@@ -56,6 +58,24 @@ function FloatingBar() {
       if (activeCapturePhases.includes(stateRef.current.phase) || candidateRef.current || feedbackRef.current) return
       void window.opentype.window.hideBar()
     }, delay)
+  }
+  const restoreNextCandidate = async (historyId: string, expectedScope: string, generation: number) => {
+    try {
+      const snapshot = await window.opentype.desktop.dictionary.snapshot()
+      if (snapshot.scope !== expectedScope) return
+      const pending = await window.opentype.desktop.corrections.list(0, historyId)
+      const afterList = await window.opentype.desktop.dictionary.snapshot()
+      if (candidateGeneration.current !== generation || candidateRef.current
+        || activeCapturePhases.includes(stateRef.current.phase) || afterList.scope !== expectedScope) return
+      const next = pending.items.find(item => item.sourceKind === 'input_edit')
+      if (!next) return
+      updateCandidate(next)
+      setCandidateScope(expectedScope)
+      updateFeedback('')
+      setFeedbackTitle('')
+      correctionSessionRef.current = true
+      clearTimeout(hideBarTimer.current)
+    } catch { /* the dictionary page remains the fallback review path */ }
   }
   useEffect(() => {
     void window.opentype.config
@@ -77,6 +97,7 @@ function FloatingBar() {
       if (activeCapturePhases.includes(s.phase)) {
         clearTimeout(hideBarTimer.current)
         clearTimeout(feedbackTimer.current)
+        candidateGeneration.current++
         updateCandidate(null)
         setCandidateScope(undefined)
         deferredRetraction.current = ''
@@ -98,6 +119,7 @@ function FloatingBar() {
       }
       clearTimeout(feedbackTimer.current)
       clearTimeout(hideBarTimer.current)
+      candidateGeneration.current++
       if (next) correctionSessionRef.current = true
       updateCandidate(next)
       setCandidateScope(next ? scope : undefined)
@@ -127,6 +149,7 @@ function FloatingBar() {
   const acceptCandidate = async () => {
     const activeCandidate = candidateRef.current
     if (!activeCandidate || candidateAction.current || captureBusy) return
+    const activeScope = candidateScope
     candidateAction.current = true
     setCandidateBusy(true)
     try {
@@ -134,6 +157,7 @@ function FloatingBar() {
       if (candidateRef.current?.id !== activeCandidate.id) return
       updateCandidate(null)
       setCandidateScope(undefined)
+      restoreNextCandidate(activeCandidate.historyId, activeScope ?? '', ++candidateGeneration.current)
       updateFeedback('已加入词典')
       setFeedbackTitle('')
       feedbackTimer.current = setTimeout(() => {
@@ -177,6 +201,7 @@ function FloatingBar() {
   const dismissCandidate = async () => {
     const activeCandidate = candidateRef.current
     if (!activeCandidate || candidateAction.current || captureBusy) return
+    const activeScope = candidateScope
     candidateAction.current = true
     setCandidateBusy(true)
     try {
@@ -184,6 +209,7 @@ function FloatingBar() {
       if (candidateRef.current?.id === activeCandidate.id) {
         updateCandidate(null)
         setCandidateScope(undefined)
+        restoreNextCandidate(activeCandidate.historyId, activeScope ?? '', ++candidateGeneration.current)
         correctionSessionRef.current = true
         updateFeedback('')
         setFeedbackTitle('')

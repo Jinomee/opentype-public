@@ -427,10 +427,11 @@ public func readInputObservation(_ tokenPtr: UnsafePointer<CChar>?) -> UnsafeMut
     guard let tokenPtr, let target = inputTargets[String(cString: tokenPtr)], let since = target.observingSince,
           ProcessInfo.processInfo.systemUptime - since < 60 else { return targetJSON(["active": false, "reason": "expired"]) }
     guard AXIsProcessTrusted(), !target.app.isTerminated else { return targetJSON(["active": false, "reason": "unavailable"]) }
-    guard NSWorkspace.shared.frontmostApplication?.processIdentifier == target.app.processIdentifier else { return targetJSON(["active": false, "reason": "app_changed"]) }
-    guard let element = target.element, !secureTarget(element), let focused = focusedTarget(app: target.app), CFEqual(focused, element) else { return targetJSON(["active": false, "reason": "field_changed"]) }
+    guard NSWorkspace.shared.frontmostApplication?.processIdentifier == target.app.processIdentifier else { return targetJSON(["active": false, "reason": "app_inactive"]) }
+    guard let element = target.element, !secureTarget(element) else { return targetJSON(["active": false, "reason": "field_invalid"]) }
     let web = targetWebContext(element)
     guard !web.redacted, web.urls == target.webUrls else { return targetJSON(["active": false, "reason": "document_changed"]) }
+    guard let focused = focusedTarget(app: target.app), CFEqual(focused, element) else { return targetJSON(["active": false, "reason": "field_unfocused"]) }
     // The current field is read transiently to reject any change outside the
     // insertion. Nothing from a different target or outside that range returns.
     guard let original = target.value, let range = target.range,

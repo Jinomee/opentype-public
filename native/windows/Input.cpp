@@ -224,7 +224,13 @@ OT_EXPORT char* beginInputObservation(const char* token,const char* text){try{st
   if(!target->verified||target->inserted!=inserted||!focused(*target)||normalizedLines(read(target->element.Get()).value)!=normalizedLines(target->expected))return std::string("{\"ok\":false}");
   target->observation=GetTickCount64();return std::string("{\"ok\":true}");});}catch(...){return ot::result("{\"ok\":false}");}}
 OT_EXPORT char* readInputObservation(const char* token){std::string id=token?token:"";return respond([id]{auto target=targetFor(id);
-  if(!target->observation||GetTickCount64()-target->observation>=60000||!focused(*target))return std::string("{\"active\":false}");
+  if(!target->observation||GetTickCount64()-target->observation>=60000)return std::string("{\"active\":false,\"reason\":\"expired\"}");
+  if(!IsWindow(target->window))return std::string("{\"active\":false,\"reason\":\"target_invalid\"}");
+  DWORD pid=0;GetWindowThreadProcessId(target->window,&pid);if(pid!=target->pid)return std::string("{\"active\":false,\"reason\":\"target_invalid\"}");
+  if(!ot::inputDesktopAvailable())return std::string("{\"active\":false,\"reason\":\"unavailable\"}");
+  if(GetForegroundWindow()!=target->window)return std::string("{\"active\":false,\"reason\":\"app_inactive\"}");
+  if(webURLs(target->element.Get())!=target->urls)return std::string("{\"active\":false,\"reason\":\"document_changed\"}");
+  if(!focused(*target))return std::string("{\"active\":false,\"reason\":\"field_unfocused\"}");
   auto current=read(target->element.Get());auto prefix=target->original.value.substr(0,target->original.start),suffix=target->original.value.substr(target->original.end);
   if(current.value.size()<prefix.size()+suffix.size()||current.value.compare(0,prefix.size(),prefix)!=0||current.value.compare(current.value.size()-suffix.size(),suffix.size(),suffix)!=0)return std::string("{\"active\":false}");
   size_t length=current.value.size()-prefix.size()-suffix.size();

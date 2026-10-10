@@ -7,7 +7,7 @@ import { eq, desc, and, sql } from 'drizzle-orm'
 import { join, resolve } from 'node:path'
 import { existsSync, mkdirSync } from 'node:fs'
 import { createHash } from 'node:crypto'
-import { extractCorrections, extractInputCorrections } from '../services/correction-extraction'
+import { extractCorrections, extractInputCorrections, type CorrectionPair } from '../services/correction-extraction'
 import type { CorrectionCandidate, CorrectionList, CorrectionAcceptance } from '../../shared/corrections'
 import type { HistoryStats } from '../../shared/desktop'
 import { history, historyTombstones, dictionary, type HistoryStatus, type SyncStatus, type CaptureMode } from './schema'
@@ -817,11 +817,14 @@ export const CorrectionRepo = {
     return Boolean(row && !wasDeleted(id) && canLearn(row, blacklist) && row.editedText === null && row.refinedText === expected
       && jsonObject(row.modeMeta).input_delivery === 'verified' && learningDomainsAllowed(domains, blacklist))
   },
-  observeEdit(id: string, expected: string, corrected: string, blacklist: string[] = [], domains: string[] = []): { active: boolean; candidates: number; candidate: CorrectionCandidate | null; retractedIds: string[]; scope: string } {
+  observeEdit(id: string, expected: string, corrected: string, blacklist: string[] = [], domains: string[] = [], validatedPairs?: CorrectionPair[]): { active: boolean; candidates: number; candidate: CorrectionCandidate | null; retractedIds: string[]; scope: string } {
     return requireDb().transaction(() => {
       const scope = DictionaryRepo.scope()
       if (typeof corrected !== 'string' || corrected.length > 100_000 || !CorrectionRepo.canObserve(id, expected, blacklist, domains)) return { active: false, candidates: 0, candidate: null, retractedIds: [], scope }
-      const pairs = extractInputCorrections(expected, corrected)
+      const pairs = validatedPairs === undefined ? extractInputCorrections(expected, corrected)
+        : validatedPairs.filter(pair => pair && typeof pair.original === 'string' && typeof pair.replacement === 'string'
+          && pair.original.length > 0 && pair.replacement.length > 0 && pair.original !== pair.replacement
+          && expected.includes(pair.original) && corrected.includes(pair.replacement))
       // Persist only word pairs, not the edited field or a new history version.
       const retractedIds = (raw!.prepare("SELECT id FROM correction_candidates WHERE history_id = ? AND state = 'pending' AND source_kind = 'input_edit'").all(id) as { id: string }[]).map(row => row.id)
       raw!.prepare("DELETE FROM correction_candidates WHERE history_id = ? AND state = 'pending' AND source_kind = 'input_edit'").run(id)

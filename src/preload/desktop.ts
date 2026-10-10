@@ -125,6 +125,7 @@ export const desktop = {
     list: (offset = 0, historyId?: string) => invoke<CorrectionList>('desktop:corrections-list', offset, historyId),
     dismiss: (id: string) => invoke<void>('desktop:corrections-dismiss', id),
     accept: (id: string, term: string, hint: string,scope?:string) => invoke<CorrectionAcceptance>('desktop:corrections-accept', id, term, hint,scope),
+    setCapsuleCandidate: (id?: string) => ipcRenderer.send('desktop:corrections-active-candidate', id),
     onCapsuleCandidate: (cb: (value: { candidate: CorrectionCandidate | null; candidateId?: string; scope?: string }) => void) =>
       watch('desktop:correction-capsule-candidate', cb),
   },

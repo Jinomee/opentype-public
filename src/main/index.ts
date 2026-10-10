@@ -34,6 +34,7 @@ import { readInputDiagnostics, recordInputDiagnostic, inputDiagnosticReason } fr
 import { capturedContext } from './services/capture-context'
 import { AnswerCardSession } from './services/answer-card'
 import { InputCorrections } from './services/input-corrections'
+import { analyzeInputCorrection } from './services/correction-intelligence'
 import { errorMessage, type CardPayload, type VoiceState } from '../shared/desktop'
 import { AudioEncoder } from './services/audio'
 import { HistoryRepo, DictionaryRepo, CorrectionRepo, initDatabase, closeDatabase } from './db'
@@ -868,9 +869,14 @@ const inputCorrections = new InputCorrections({
   enabled: () => ((store?.get('app-settings' as never) ?? {}) as Record<string, unknown>).learnFromInputEdits === true,
   scope: () => DictionaryRepo.scope(),
   allowed: (id, text, target) => !target.audioContext.redacted && CorrectionRepo.canObserve(id, text, getConfig().blacklistDomains, target.inputWebDomains),
-  save: (id, text, corrected, target, scope) => {
+  analyze: (before, after, signal) => {
+    const c = getConfig()
+    return analyzeInputCorrection(before, after, { provider: 'deepseek', baseUrl: c.refineBaseUrl,
+      model: c.refineModel, apiKey: c.refineApiKey, enabled: c.enableRefine }, signal)
+  },
+  save: (id, text, corrected, target, scope, pairs) => {
     if (DictionaryRepo.scope() !== scope) return false
-    const result = CorrectionRepo.observeEdit(id, text, corrected, getConfig().blacklistDomains, target.inputWebDomains)
+    const result = CorrectionRepo.observeEdit(id, text, corrected, getConfig().blacklistDomains, target.inputWebDomains, pairs)
     if (result.active) {
       mainWindow?.webContents.send('desktop:history-changed')
       for (const candidateId of result.retractedIds) {
@@ -1708,7 +1714,13 @@ function registerIpc(): void {
     getPreferences:()=> (store?.get('app-settings' as never)??{}) as Record<string,unknown>,
     savePreferences:p=>{
       store?.set({'app-settings':{...((store?.get('app-settings' as never)??{}) as object),...p}} as never)
-      if (!p.learnFromInputEdits) inputCorrections.stop()
+      if (p.learnFromInputEdits === false) {
+        inputCorrections.stop()
+        for (const candidateId of CorrectionRepo.dismissAllInputEdits()) {
+          barWindow?.webContents.send('desktop:correction-capsule-candidate', { candidate: null, candidateId, scope: DictionaryRepo.scope() })
+        }
+        shownCorrectionCapsuleId = undefined
+      }
       refreshTrayMenu()
       barPositioner?.preview(false)
       barPositioner?.refresh()
@@ -1999,6 +2011,12 @@ function registerIpc(): void {
   })
 
   ipcMain.handle('window:show-bar', () => barWindow?.showInactive())
+  ipcMain.on('desktop:corrections-active-candidate', (event, candidateId: unknown) => {
+    if (event.sender !== barWindow?.webContents || event.senderFrame !== event.sender.mainFrame) return
+    const active = typeof candidateId === 'string' && CorrectionRepo.isPendingInputEdit(candidateId) ? candidateId : undefined
+    shownCorrectionCapsuleId = active
+    if (active) { clearTimeout(barHideTimer); barWindow?.showInactive() }
+  })
   ipcMain.handle('window:hide-bar', () => {
     if (currentVoiceState && ['preparing', 'recording', 'stopping', 'encoding', 'uploading', 'transcribing', 'refining', 'injecting'].includes(currentVoiceState.phase)) return
     if (shownCorrectionCapsuleId && CorrectionRepo.isPendingInputEdit(shownCorrectionCapsuleId)) return
