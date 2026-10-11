@@ -1230,6 +1230,9 @@ kbd { font-family: inherit; border-color: var(--line); box-shadow: 0 2px 0 var(-
 .page-heading h1 { font-size: 30px; font-weight: 750; letter-spacing: -0.8px; }
 
 /* home */
+/* The home page still scrolls, but without a visible scrollbar or reserved gutter. */
+.page-content:has(> .home) { scrollbar-gutter: auto; scrollbar-width: none; }
+.page-content:has(> .home)::-webkit-scrollbar { display: none; }
 .home { max-width: 1180px; }
 .hero-title { font-size: 42px; font-weight: 750; letter-spacing: -1.2px; line-height: 1.12; margin-bottom: 24px; }
 .home-layout { display: grid; grid-template-columns: minmax(0, 1fr) 224px; gap: 20px; align-items: start; }
