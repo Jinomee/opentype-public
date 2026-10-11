@@ -74,16 +74,24 @@ public:
   DWORD currentSequence()const{return sequence;}
   Publish publish(ClipboardData* data,DWORD expected,bool restoring){
     auto staged=duplicate(data); // Allocate every copy before opening/emptying.
-    ClipboardLock lock(window);if(!lock.open)return Publish::retry;
-    if(GetClipboardSequenceNumber()!=expected||(restoring&&GetClipboardOwner()!=window))return Publish::changed;
-    if(!EmptyClipboard())return Publish::retry;
-    owns=true;sequence=GetClipboardSequenceNumber();
-    for(auto& item:staged->items){
-      if(!SetClipboardData(item.format.cfFormat,raw(item.medium))){sequence=GetClipboardSequenceNumber();return Publish::retry;}
-      // Windows now owns this particular copy, including its nested metafile.
-      ZeroMemory(&item.medium,sizeof(item.medium));sequence=GetClipboardSequenceNumber();
+    Publish result=Publish::complete;
+    {
+      ClipboardLock lock(window);if(!lock.open)return Publish::retry;
+      if(GetClipboardSequenceNumber()!=expected||(restoring&&GetClipboardOwner()!=window))return Publish::changed;
+      if(!EmptyClipboard())return Publish::retry;
+      owns=true;
+      for(auto& item:staged->items){
+        if(!SetClipboardData(item.format.cfFormat,raw(item.medium))){result=Publish::retry;break;}
+        // Windows now owns this particular copy, including its nested metafile.
+        ZeroMemory(&item.medium,sizeof(item.medium));
+      }
     }
-    return Publish::complete;
+    // CloseClipboard adds synthesized formats (CF_TEXT, CF_OEMTEXT, CF_LOCALE)
+    // and advances the sequence again, so record it only after closing. Read it
+    // before checking ownership: another app's EmptyClipboard is then detected.
+    sequence=GetClipboardSequenceNumber();
+    if(GetClipboardOwner()!=window){owns=false;return Publish::changed;}
+    return result;
   }
   void restore(){
     while(owns){
