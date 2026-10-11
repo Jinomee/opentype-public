@@ -207,6 +207,47 @@ kbd {
   -webkit-app-region: drag;
   z-index: 10;
 }
+/* Windows: no native title bar or traffic lights; controls sit at the top right. */
+.titlebar.custom {
+  left: 0;
+  height: 32px;
+}
+.window-controls {
+  position: fixed;
+  top: 0;
+  right: 0;
+  display: flex;
+  z-index: 60;
+  -webkit-app-region: no-drag;
+}
+.window-controls button {
+  width: 46px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: default;
+  transition: background-color 0.12s, color 0.12s;
+}
+.window-controls button:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.window-controls button.close:hover {
+  background: #c42b1c;
+  color: #fff;
+}
+.window-controls button:active {
+  opacity: 0.8;
+}
+.window-controls button:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: -2px;
+}
 .app-shell {
   display: flex;
   height: 100vh;
@@ -1900,3 +1941,9 @@ button.link:disabled { opacity: 0.5; }
   .onb-main { max-width: 640px; margin: 0 auto; }
   .onboarding .asr.asr-onb, .onboarding-permissions { max-width: 560px; }
 }
+
+/* Windows custom title bar: keep dialogs clear of the window controls strip. */
+body:has(.window-controls) .modal-backdrop { padding-top: 40px; }
+body:has(.window-controls) .modal { max-height: calc(100vh - 64px); }
+body:has(.window-controls) .modal.wide { height: min(660px, calc(100vh - 64px)); }
+body:has(.window-controls) .modal.wide:has(.skill-editor) { height: auto; max-height: calc(100vh - 64px); }

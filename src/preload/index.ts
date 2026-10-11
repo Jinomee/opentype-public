@@ -55,6 +55,11 @@ const CH = {
   // 窗口
   WINDOW_SHOW_BAR: 'window:show-bar',
   WINDOW_HIDE_BAR: 'window:hide-bar',
+  WINDOW_MINIMIZE: 'window:minimize',
+  WINDOW_TOGGLE_MAXIMIZE: 'window:toggle-maximize',
+  WINDOW_CLOSE: 'window:close',
+  WINDOW_IS_MAXIMIZED: 'window:is-maximized',
+  ON_WINDOW_MAXIMIZED: 'window:maximized-changed',
   ON_HOTKEY_STATE: 'hotkey:state-changed',
 
   // 注入
@@ -171,6 +176,15 @@ const api = {
   window: {
     showBar: () => ipcRenderer.invoke(CH.WINDOW_SHOW_BAR),
     hideBar: () => ipcRenderer.invoke(CH.WINDOW_HIDE_BAR),
+    minimize: () => ipcRenderer.send(CH.WINDOW_MINIMIZE),
+    toggleMaximize: () => ipcRenderer.send(CH.WINDOW_TOGGLE_MAXIMIZE),
+    close: () => ipcRenderer.send(CH.WINDOW_CLOSE),
+    isMaximized: (): Promise<boolean> => ipcRenderer.invoke(CH.WINDOW_IS_MAXIMIZED),
+    onMaximizedChange: (cb: (maximized: boolean) => void) => {
+      const handler = (_: unknown, maximized: boolean) => cb(maximized === true)
+      ipcRenderer.on(CH.ON_WINDOW_MAXIMIZED, handler)
+      return () => { ipcRenderer.off(CH.ON_WINDOW_MAXIMIZED, handler) }
+    },
     onHotkeyState: (cb: (state: any) => void) => {
       const handler = (_: unknown, state: any) => cb(state)
       ipcRenderer.on(CH.ON_HOTKEY_STATE, handler)

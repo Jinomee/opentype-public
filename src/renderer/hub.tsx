@@ -7,6 +7,7 @@ import {
 } from 'react'
 import { createRoot } from 'react-dom/client'
 import { Icon, IconButton } from './components/ui'
+import { TitleBar } from './components/title-bar'
 import { HistoryPage } from './pages/history'
 import { DictionaryPage } from './pages/dictionary'
 import { SkillsPage } from './pages/skills'
@@ -70,7 +71,7 @@ function Hub() {
   useAppearanceTheme(prefs?.appearance)
   return (
     <>
-      <div className="titlebar" />
+      <TitleBar />
       <div className="app-shell">
         <aside className="sidebar">
           <div className="sidebar-brand">

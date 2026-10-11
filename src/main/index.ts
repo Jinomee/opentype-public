@@ -500,6 +500,13 @@ function createBarWindow(): BrowserWindow {
   return win
 }
 
+/** Keeps the in-page maximize/restore button in sync with the native window state. */
+function reportMaximized(win: BrowserWindow): void {
+  const send = () => { if (!win.isDestroyed()) win.webContents.send('window:maximized-changed', win.isMaximized()) }
+  win.on('maximize', send)
+  win.on('unmaximize', send)
+}
+
 /** One source-built entry renders onboarding and the local hub without an account gate. */
 function createMainWindow(): BrowserWindow {
   const win = new BrowserWindow({
@@ -513,6 +520,8 @@ function createMainWindow(): BrowserWindow {
     // 沉浸式顶部：隐藏原生标题栏，红绿灯内嵌进内容区。
     // Drag region and traffic-light spacing are owned by app.css.
     ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset' as const, trafficLightPosition: { x: 12, y: 12 } } : {}),
+    // Windows: the page draws its own window controls; the resize frame and snapping stay native.
+    ...(process.platform === 'win32' ? { titleBarStyle: 'hidden' as const } : {}),
     webPreferences: {
       preload: rendererPreload(),
       contextIsolation: true,
@@ -528,6 +537,7 @@ function createMainWindow(): BrowserWindow {
   // 关闭后必须清引用：否则 open-entry-window 的 `??=` 会拿到已销毁窗口，
   // 直接抛 "Object has been destroyed"。
   win.on('closed', () => { if (mainWindow === win) mainWindow = null })
+  reportMaximized(win)
 
   loadRenderer(win, 'index.html')
   return win
@@ -745,7 +755,9 @@ function showSpeechSettings() {
   speechSettingsWindow = new BrowserWindow({ width: 780, height: 840, minWidth: 620, minHeight: 640,
     icon: join(app.getAppPath(), 'build/icon.png'),
     title: 'OpenType 听写设置', backgroundColor: '#f5f7f4',
+    ...(process.platform === 'win32' ? { titleBarStyle: 'hidden' as const } : {}),
     webPreferences: { preload: join(__dirname, '../preload/index.js'), contextIsolation: true, nodeIntegration: false, sandbox: true } })
+  reportMaximized(speechSettingsWindow)
   speechSettingsWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   speechSettingsWindow.webContents.on('will-navigate', event => event.preventDefault())
   speechSettingsWindow.on('closed', () => { speechSettingsWindow = null })
@@ -2030,6 +2042,18 @@ function registerIpc(): void {
   })
 
   ipcMain.handle('window:show-bar', () => barWindow?.showInactive())
+  // In-page window controls: only the main and speech-settings top frames may drive their own window.
+  const controlledWindow = (event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    return win && event.senderFrame === event.sender.mainFrame && (win === mainWindow || win === speechSettingsWindow) ? win : null
+  }
+  ipcMain.on('window:minimize', event => controlledWindow(event)?.minimize())
+  ipcMain.on('window:toggle-maximize', event => {
+    const win = controlledWindow(event)
+    if (win) { if (win.isMaximized()) win.unmaximize(); else win.maximize() }
+  })
+  ipcMain.on('window:close', event => controlledWindow(event)?.close())
+  ipcMain.handle('window:is-maximized', event => controlledWindow(event)?.isMaximized() ?? false)
   ipcMain.on('desktop:corrections-active-candidate', (event, candidateId: unknown) => {
     if (event.sender !== barWindow?.webContents || event.senderFrame !== event.sender.mainFrame) return
     const active = typeof candidateId === 'string' && CorrectionRepo.isPendingInputEdit(candidateId) ? candidateId : undefined
